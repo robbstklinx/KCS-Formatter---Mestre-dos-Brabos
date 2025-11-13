@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KCS Formatter — Mestre dos Brabos</title>
+
+  <!-- Estilos -->
+  <link rel="stylesheet" href="styles.css">
+  <!-- Quill Editor CDN -->
+  <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+</head>
+
+<body>
+  <div class="container">
+    <header>
+      <h1>KCS Formatter — Mestre dos Brabos</h1>
+      <p class="muted">Ferramenta de criação e formatação de artigos técnicos com metodologia KCS.</p>
+    </header>
+
+    <div class="card">
+      <label for="modeSelect">Modo de uso:</label>
+      <select id="modeSelect">
+        <option value="manual">Inserir texto manualmente (Editor)</option>
+        <option value="search">Buscar artigo no Share Linx</option>
+      </select>
+    </div>
+
+    <!-- ======= MODO MANUAL ======= -->
+    <div class="card" id="manualCard">
+      <label>Texto Rascunho (editor)</label>
+      <div id="quillToolbar"></div>
+      <div id="quillEditor" style="height:150px;background:#fff;color:#000;border-radius:6px;"></div>
+
+      <div class="controls">
+        <button id="formatFromEditor">Formatar a partir do editor</button>
+        <button id="clearEditor">Limpar editor</button>
+      </div>
+    </div>
+
+    <!-- ======= MODO BUSCA ======= -->
+    <div class="card hidden" id="searchCard">
+      <label>Buscar artigo no Share Linx</label>
+      <div class="search-area">
+        <input id="searchInput" placeholder="Digite um termo para buscar..." />
+        <button id="searchBtn">Buscar no Share</button>
+        <button id="searchGoogleBtn" style="background: #2c7d9e; color: white;" title="Buscar na base de conhecimento via Confluence API">Buscar na Base</button>
+        <button id="useSelectedBtn">Usar artigo selecionado</button>
+      </div>
+      <div id="results" class="search-results"></div>
+    </div>
+
+    <!-- ======= FORMULÁRIO DE ARTIGO ======= -->
+    <div class="card" id="editorCard" style="display:none;">
+      <h2>Editor do Artigo</h2>
+      <div id="formatMethodBadge" class="badge hidden">Método: --</div>
+      <div class="row">
+        <div class="col">
+          <label>Título</label>
+          <input id="title">
+        </div>
+        <div class="col">
+          <label>Módulo / Vertical</label>
+          <input id="module">
+        </div>
+      </div>
+
+      <label>Descrição</label>
+      <textarea id="desc" rows="3"></textarea>
+
+      <div class="row">
+        <div class="col">
+          <label>Causa</label>
+          <textarea id="cause" rows="3"></textarea>
+        </div>
+        <div class="col">
+          <label>Links relacionados</label>
+          <textarea id="links" rows="3"></textarea>
+        </div>
+      </div>
+
+      <label>Solução (passo a passo)</label>
+      <textarea id="solution" rows="6"></textarea>
+
+      <label>Tags</label>
+      <input id="tags">
+
+      <div class="controls">
+        <button id="renderBtn">Atualizar preview</button>
+  <button id="formatWithAI">Formatar com IA</button>
+  <button id="mockAI">Testar IA (mock)</button>
+        <button id="copyPreview">Copiar Preview</button>
+        <button id="copyJson">Copiar JSON</button>
+        <button id="downloadTxt">Baixar .txt</button>
+        <button id="downloadMd">Baixar .md</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="previewCard">
+      <h2>Preview</h2>
+      <div id="preview" class="preview"></div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+  <script src="../formatter.js"></script>
+  <script src="../renderer.js"></script>
+  
+  <!-- Modal: escolha de formatação -->
+  <div id="formatChoiceModal" class="modal hidden">
+    <div class="modal-box">
+      <h3>Como deseja formatar?</h3>
+      <p>Escolha entre usar a IA (recomendado para conteúdo gerado automaticamente) ou o formatador local (regras fixas).</p>
+      <div class="modal-actions">
+        <label><input type="checkbox" id="modalPersistChoice"> Sempre usar esta escolha</label>
+        <div>
+          <button id="modalUseAI">Formatar com IA</button>
+          <button id="modalUseLocal">Usar formatador local</button>
+          <button id="modalCancel">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

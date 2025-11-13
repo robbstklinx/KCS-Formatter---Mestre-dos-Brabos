@@ -1,0 +1,54 @@
+{
+  "name": "kcs-formatter",
+  "version": "3.0.3",
+  "description": "Ferramenta KCS Formatter — Mestre dos Brabos | Linx Microvix",
+  "main": "src/main.js",
+  "author": "Equipe Mestre dos Brabos",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "build": {
+    "appId": "com.linx.mestredosbrabos.kcsformatter",
+    "productName": "KCS Formatter - Mestre dos Brabos",
+    "files": [
+      "src/**/*",
+      "node_modules/**/*",
+      "!node_modules/openai/src/_vendor/**",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "src/public",
+      "output": "dist"
+    },
+    "extraResources": [
+      {
+        "from": "src/public/mestredosbrabosicon.ico",
+        "to": "icon.ico"
+      }
+    ],
+    "win": {
+      "icon": "src/public/mestredosbrabosicon.ico",
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "KCS Formatter"
+    }
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "cheerio": "^1.1.2",
+    "dotenv": "^16.6.1",
+    "node-fetch": "^3.3.2",
+    "openai": "^4.0.0"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^26.0.12"
+  }
+}

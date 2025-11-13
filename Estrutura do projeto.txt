@@ -1,0 +1,13 @@
+project-xavier/
+├─ package.json
+├─ main.js                  ← controla janelas, conecta API Share e IA
+├─ preload.js               ← ponte segura entre front-end e main
+├─ .env                     ← guarda chave API e configs (não subir no git)
+└─ app/
+   ├─ index.html            ← interface
+   ├─ css/style.css
+   ├─ js/formatter.js       ← funções de formatação (KCS)
+   ├─ js/renderer.js        ← lógica da interface, eventos, preview, IA
+   └─ libs/quill/
+       ├─ quill.min.js
+       └─ quill.snow.css
