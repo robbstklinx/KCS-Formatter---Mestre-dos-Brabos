@@ -14,10 +14,17 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 
 // Remove espaços em branco das variáveis de ambiente
 const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim();
+const COPILOT_API_KEY = (process.env.COPILOT_API_KEY || '').trim();
+const COPILOT_ENDPOINT = (process.env.COPILOT_ENDPOINT || 'https://api.openai.com/v1').trim();
 const SHARE_API_KEY = (process.env.SHARE_API_KEY || '').trim();
 const SHARE_API_URL = (process.env.SHARE_API_URL || '').trim();
 
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+let openai = null;
+if (OPENAI_API_KEY) {
+  openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+} else if (COPILOT_API_KEY) {
+  openai = new OpenAI({ apiKey: COPILOT_API_KEY, baseURL: COPILOT_ENDPOINT });
+}
 
 // =============================
 // === Criação da Janela ===
@@ -36,6 +43,7 @@ function createWindow() {
   });
 
   // Carrega o index.html diretamente da pasta `src/public` para preservar caminhos relativos
+
   const originalPath = path.join(__dirname, 'public', 'index.html');
   try {
     mainWindow.loadFile(originalPath);
@@ -68,63 +76,111 @@ function createWindow() {
 // =============================
 function createArticleWindow(url, title = 'Visualizador de Artigo') {
   console.log('🆕 Criando janela child. URL:', url, 'Title:', title);
-  
+
+  // Valida a URL antes de carregar
+  if (!url || !url.startsWith('http')) {
+    console.error('❌ URL inválida fornecida:', url);
+    return;
+  }
+
   const childWindow = new BrowserWindow({
-    width: 1000,
-    height: 700,
+    width: 1200,
+    height: 850,
     icon: path.join(__dirname, 'public', 'mestredosbrabosicon.ico'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false, // ⚠️ DESATIVADO PARA DEBUG - REATIVAR EM PRODUÇÃO
-      // Habilita recursos de navegador
+      sandbox: false,
       enableRemoteModule: false,
-      preload: undefined, // Não precisa de preload para janelas child
-      webSecurity: true
+      preload: undefined,
+      webSecurity: false,
+      allowRunningInsecureContent: true,
+      enableBlinkFeatures: 'ResizeObserver'
     },
-    show: false // Mostrar depois que carregar
+    show: false
   });
 
-  // MUITO DEBUG: Log de console da child window
-  childWindow.webContents.on('console-message', (level, message, line, sourceId) => {
-    console.log(`  📱 Child Window Console [${level}]: ${message} (${sourceId}:${line})`);
-  });
-
-  // Debug: Monitor de estado da janela
-  childWindow.webContents.on('did-start-loading', () => {
-    console.log('⏳ Child window: Iniciando carregamento da URL...');
-  });
-
-  childWindow.webContents.on('did-finish-load', () => {
-    console.log('✅ Child window: Carregamento HTML concluído!');
-    childWindow.show(); // Mostra assim que carregar
-  });
-
+  // Monitora todas as falhas de carregamento
   childWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     console.error('❌ Child window: Falha ao carregar');
     console.error('   Erro:', errorDescription, `(código ${errorCode})`);
     console.error('   URL:', validatedURL);
     console.error('   Main frame:', isMainFrame);
-    // Mesmo com erro, tenta mostrar para o usuário ver a mensagem de erro
-    if (!childWindow.isDestroyed() && !childWindow.isVisible()) {
+
+    if (!childWindow.isDestroyed()) {
+      childWindow.loadURL(`data:text/html,<h1>Erro ao carregar conteúdo</h1><p>${errorDescription}</p>`);
       childWindow.show();
     }
   });
 
+  // Log de console da página carregada
+  childWindow.webContents.on('console-message', (level, message, line, sourceId) => {
+    console.log(`  📱 Child Console [${level}]: ${message} (${sourceId}:${line})`);
+  });
+
+  // Monitora se o conteúdo foi renderizado
+  childWindow.webContents.on('dom-ready', () => {
+    console.log('✅ Child window: DOM pronto!');
+    
+    // Remove ou relaxa o CSP que pode estar bloqueando o conteúdo
+    childWindow.webContents.executeJavaScript(`
+      const cspMeta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+      if (cspMeta) {
+        console.log('🔓 Removendo CSP restritivo...');
+        cspMeta.remove();
+      }
+      
+      const bodyContent = document.body.innerHTML;
+      console.log('📄 Body innerHTML length:', bodyContent.length);
+      console.log('📄 Body text length:', document.body.textContent.length);
+    `).catch(err => console.error('Erro ao executar JS:', err));
+  });
+
+  childWindow.webContents.on('did-finish-load', () => {
+    console.log('✅ Child window: Carregamento HTML concluído!');
+    
+    // Verifica o tamanho do conteúdo
+    childWindow.webContents.executeJavaScript(`
+      const htmlSize = document.documentElement.innerHTML.length;
+      const hasContent = document.body.children.length > 0;
+      console.log('📊 HTML size:', htmlSize, 'bytes');
+      console.log('📊 Has child elements:', hasContent);
+      console.log('📊 Body element found:', !!document.body);
+    `).catch(err => console.error('Erro ao verificar conteúdo:', err));
+
+    childWindow.show();
+  });
+
+  // Monitora erro de renderização
   childWindow.webContents.on('crashed', () => {
     console.error('❌ Child window: Renderizador travou!');
   });
 
-  // Monitora navegação
-  childWindow.webContents.on('will-navigate', (event, url) => {
-    console.log('🔄 Child window: Navegando para:', url);
+  // Monitora erros de rede
+  childWindow.webContents.session.webRequest.onErrorOccurred({urls: ['<all_urls>']}, (details) => {
+    console.warn('⚠️ Erro de rede:', {
+      url: details.url,
+      error: details.error
+    });
   });
 
-  childWindow.webContents.on('did-navigate', (event, url) => {
-    console.log('✅ Child window: Navegou para:', url);
+  // Intercepta headers para remover CSP restritivo
+  childWindow.webContents.session.webRequest.onHeadersReceived({urls: ['<all_urls>']}, (details, callback) => {
+    const responseHeaders = {...details.responseHeaders};
+    
+    // Remove ou relaxa o Content-Security-Policy
+    if (responseHeaders['content-security-policy']) {
+      console.log('🔓 CSP detectado no header, removendo...');
+      delete responseHeaders['content-security-policy'];
+    }
+    if (responseHeaders['content-security-policy-report-only']) {
+      console.log('🔓 CSP report-only detectado, removendo...');
+      delete responseHeaders['content-security-policy-report-only'];
+    }
+    
+    callback({responseHeaders});
   });
 
-  // Carrega a URL do artigo
   console.log('📡 Carregando URL:', url);
   childWindow.loadURL(url).catch(err => {
     console.error('❌ Erro crítico ao carregar URL:', err.message);
@@ -142,88 +198,134 @@ function createArticleWindow(url, title = 'Visualizador de Artigo') {
   childWindow.on('show', () => clearTimeout(showTimeout));
   childWindow.on('close', () => clearTimeout(showTimeout));
 
-  // Context menu completo (copy, paste, cut, find, inspect, reload, etc)
+  // Registra atalhos de teclado globais
+  childWindow.webContents.on('before-input-event', (event, input) => {
+    // Ctrl+F: Localizar
+    if (input.control && input.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      childWindow.webContents.findInPage('', { findNext: false });
+      return;
+    }
+    
+    // Ctrl+C: Copiar
+    if (input.control && input.key.toLowerCase() === 'c') {
+      childWindow.webContents.copy();
+      return;
+    }
+    
+    // Ctrl+X: Recortar
+    if (input.control && input.key.toLowerCase() === 'x') {
+      childWindow.webContents.cut();
+      return;
+    }
+    
+    // Ctrl+V: Colar
+    if (input.control && input.key.toLowerCase() === 'v') {
+      childWindow.webContents.paste();
+      return;
+    }
+    
+    // Ctrl+A: Selecionar tudo
+    if (input.control && input.key.toLowerCase() === 'a') {
+      childWindow.webContents.selectAll();
+      return;
+    }
+    
+    // Ctrl+R: Recarregar
+    if (input.control && input.key.toLowerCase() === 'r' && !input.shift) {
+      childWindow.reload();
+      return;
+    }
+    
+    // Ctrl+Shift+R: Recarregar forçado
+    if (input.control && input.shift && input.key.toLowerCase() === 'r') {
+      childWindow.webContents.reloadIgnoringCache();
+      return;
+    }
+    
+    // Alt+Left: Voltar
+    if (input.alt && input.key === 'ArrowLeft') {
+      if (childWindow.webContents.canGoBack()) {
+        childWindow.webContents.goBack();
+      }
+      return;
+    }
+    
+    // Alt+Right: Avançar
+    if (input.alt && input.key === 'ArrowRight') {
+      if (childWindow.webContents.canGoForward()) {
+        childWindow.webContents.goForward();
+      }
+      return;
+    }
+    
+    // F12: DevTools
+    if (input.key === 'F12') {
+      childWindow.webContents.toggleDevTools();
+      return;
+    }
+  });
+
+  // Context menu completo com opções úteis
   childWindow.webContents.on('context-menu', (e) => {
     const template = [
-      { label: 'Copiar', role: 'copy' },
-      { label: 'Colar', role: 'paste' },
-      { label: 'Recortar', role: 'cut' },
+      { label: 'Voltar', role: 'back', accelerator: 'Alt+Left' },
+      { label: 'Avançar', role: 'forward', accelerator: 'Alt+Right' },
+      { label: 'Recarregar', role: 'reload', accelerator: 'Ctrl+R' },
       { type: 'separator' },
-      { label: 'Selecionar Tudo', role: 'selectAll' },
-      { label: 'Localizar na página', role: 'find' },
+      { label: 'Copiar', role: 'copy', accelerator: 'Ctrl+C' },
+      { label: 'Colar', role: 'paste', accelerator: 'Ctrl+V' },
+      { label: 'Recortar', role: 'cut', accelerator: 'Ctrl+X' },
       { type: 'separator' },
-      { label: 'Recarregar', role: 'reload' },
-      { label: 'Recarregar (cache completo)', role: 'forceReload' },
+      { label: 'Selecionar Tudo', role: 'selectAll', accelerator: 'Ctrl+A' },
+      { label: 'Localizar na página', role: 'find', accelerator: 'Ctrl+F' },
       { type: 'separator' },
-      { label: 'Inspecionar', role: 'inspect' }
+      { label: 'Inspecionar elemento', role: 'inspect' }
     ];
     const menu = Menu.buildFromTemplate(template);
     menu.popup(childWindow);
   });
 
-  // 🔧 DEBUG: Abre DevTools automaticamente para ver erros (REMOVER EM PRODUÇÃO)
+  // Menu superior com navegação e ações
+  const template = [
+    {
+      label: 'Editar',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' }
+      ]
+    },
+    {
+      label: 'Exibir',
+      submenu: [
+        { role: 'reload', accelerator: 'Ctrl+R' },
+        { role: 'forceReload', accelerator: 'Ctrl+Shift+R' },
+        { role: 'toggleDevTools', accelerator: 'F12' }
+      ]
+    },
+    {
+      label: 'Navegação',
+      submenu: [
+        { role: 'back', accelerator: 'Alt+Left' },
+        { role: 'forward', accelerator: 'Alt+Right' }
+      ]
+    }
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  childWindow.setMenu(menu);
+
+  // 🔧 DEBUG: Abre DevTools automaticamente para ver erros e console
   setTimeout(() => {
     if (!childWindow.isDestroyed()) {
       console.log('🔧 Abrindo DevTools da child window para debug...');
       childWindow.webContents.openDevTools();
     }
-  }, 500);
-
-  // Permite abrir links em navegador padrão (segurança)
-  childWindow.webContents.setWindowOpenHandler(({ url: newUrl }) => {
-    if (newUrl.startsWith('http://') || newUrl.startsWith('https://')) {
-      // Abre em navegador padrão ao invés de nova janela
-      require('electron').shell.openExternal(newUrl);
-    }
-    return { action: 'deny' };
-  });
-
-  // Handle de zoom (Ctrl + / Ctrl - / Ctrl 0)
-  childWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.control || input.meta) {
-      if (input.key.toLowerCase() === '+' || input.key === '=') {
-        event.preventDefault();
-        childWindow.webContents.zoomLevel += 0.5;
-      } else if (input.key === '-') {
-        event.preventDefault();
-        childWindow.webContents.zoomLevel -= 0.5;
-      } else if (input.key === '0') {
-        event.preventDefault();
-        childWindow.webContents.zoomLevel = 0;
-      }
-    }
-  });
-
-  // Desabilita navegação fora do domínio (segurança)
-  childWindow.webContents.on('will-navigate', (event, url) => {
-    const parsedUrl = new URL(url);
-    const originalUrl = new URL(childWindow.webContents.getURL());
-    
-    // Permite navegação dentro do mesmo domínio
-    if (parsedUrl.hostname !== originalUrl.hostname) {
-      event.preventDefault();
-    }
-  });
-
-  // Log de abertura
-  console.log(`🌐 Janela child aberta: "${title}"`);
-  console.log(`📍 URL: ${url}`);
-
-  return childWindow;
+  }, 1000);
 }
-
-// Inicializa o app
-app.whenReady().then(() => {
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
-
-// Fecha tudo ao sair
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
 
 // =============================
 // === Comunicação via IPC ====
@@ -239,12 +341,27 @@ ipcMain.handle('open-article-window', async (event, url, title) => {
     }
     
     // Remove espaços em branco
-    const cleanUrl = url.trim();
+    let cleanUrl = url.trim();
     if (!cleanUrl) {
       throw new Error('URL vazia após limpeza');
     }
     
     console.log('✅ URL limpa:', cleanUrl);
+    
+    // Se for URL de redirecionamento (ex: DuckDuckGo), extrai a URL real
+    if (cleanUrl.includes('duckduckgo.com/l/') || cleanUrl.includes('uddg=')) {
+      console.log('🔄 URL de redirecionamento detectada, decodificando...');
+      try {
+        const urlObj = new URL(cleanUrl);
+        const uddg = urlObj.searchParams.get('uddg');
+        if (uddg) {
+          cleanUrl = decodeURIComponent(uddg);
+          console.log('✅ URL decodificada:', cleanUrl);
+        }
+      } catch (e) {
+        console.warn('⚠️ Falha ao decodificar URL:', e.message);
+      }
+    }
     
     // Valida URL
     try {
@@ -277,15 +394,82 @@ ipcMain.handle('open-article-window', async (event, url, title) => {
   }
 });
 
+// =============================
+// === Parser Inteligente de Conteúdo KCS ===
+// =============================
+function smartParseContent(content) {
+  console.log('🔍 Analisando conteúdo com parser inteligente...');
+  
+  // Detecta tipo de estrutura
+  const hasNumberedList = /^\d+[.).:\s]|^\d+\./m.test(content);
+  const hasBulletList = /^[-*•]/m.test(content);
+  const hasActionVerbs = /\b(acesse|clique|selecione|digite|pressione|confira|verifique|abra|navegue|informe|confirme|execute|realize|complete)\b/i.test(content);
+  
+  let structured = '';
+  
+  if (hasNumberedList) {
+    // Conteúdo já tem estrutura numerada
+    console.log('✓ Estrutura numerada detectada');
+    structured = content;
+  } else if (hasBulletList) {
+    // Tem bullets, manter como está
+    console.log('✓ Estrutura com bullets detectada');
+    structured = content;
+  } else if (hasActionVerbs) {
+    // Conteúdo descritivo com ações - reorganizar
+    console.log('✓ Conteúdo descritivo com ações detectado');
+    
+    const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 10);
+    structured = sentences
+      .map((sentence, idx) => {
+        const trimmed = sentence.trim();
+        if (trimmed.match(/\b(acesse|clique|selecione|digite|pressione|confira|verifique|abra|navegue|informe|confirme|execute|realize|complete)\b/i)) {
+          return `${idx + 1}. ${trimmed}`;
+        }
+        return trimmed;
+      })
+      .filter(s => s.trim().length > 0)
+      .join('\n');
+  } else {
+    // Conteúdo puro descritivo
+    console.log('✓ Conteúdo descritivo puro detectado');
+    
+    // Quebra em parágrafos e adiciona numeração
+    const paragraphs = content.split(/\n\n+/).filter(p => p.trim().length > 20);
+    structured = paragraphs
+      .map((para, idx) => `${idx + 1}. ${para.trim()}`)
+      .join('\n\n');
+  }
+  
+  console.log('📋 Conteúdo estruturado (primeiros 300 chars):', structured.substring(0, 300) + '...');
+  return structured;
+}
+
 // 🔹 IA — Formatação de texto KCS
 ipcMain.handle('ask-ai', async (event, prompt) => {
   try {
-    if (!OPENAI_API_KEY) {
-      const msg = '❌ Chave OpenAI ausente (OPENAI_API_KEY não está definida em .env).';
+    if (!openai && !OPENAI_API_KEY && !COPILOT_API_KEY) {
+      const msg = '❌ Nenhuma chave de IA configurada (OPENAI_API_KEY ou COPILOT_API_KEY).';
       console.error(msg);
       return msg;
     }
+    
+    // Se não tem openai inicializado, inicializar agora
+    if (!openai) {
+      if (COPILOT_API_KEY) {
+        openai = new OpenAI({ apiKey: COPILOT_API_KEY, baseURL: COPILOT_ENDPOINT });
+        console.log('🔄 Usando Copilot como provider de IA');
+      } else if (OPENAI_API_KEY) {
+        openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+        console.log('🔄 Usando OpenAI como provider de IA');
+      }
+    }
+    
     console.log('📤 Enviando prompt para IA (primeiros 100 caracteres):', prompt.substring(0, 100) + '...');
+    
+    // Aplica parser inteligente ao conteúdo
+    const structuredContent = smartParseContent(prompt);
+
     
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -307,17 +491,18 @@ Estrutura do JSON (campos obrigatórios/formatos):
   "tags": ["tag1", "tag2"]
 }
 
-Regras:
+Regras CRÍTICAS:
 - Título: "Linx Microvix - [Módulo] - Como [ação]" (sem pontuação final).
 - Module: identificar quando possível (Faturamento, Estoque, Fiscal, Empresa, Suprimentos, Segurança, Postos, Farma, Automotivo).
-- Description: frase introdutória começando com "Para ...".
-- Solution: array de passos; subpassos como elementos que iniciem com "1.1" etc.
-- Links: array de URLs.
-- Tags: array de até 6 strings.
+- Description: frase introdutória começando com "Para ..." que resuma o artigo.
+- Cause: explicação do problema ou contexto (se não houver, deixar vazio).
+- Solution: array com TODOS os passos/instruções encontrados. Preserve numeros e subpassos (ex: "1", "1.1", "2"). ISSO É O MAIS IMPORTANTE.
+- Links: extrair URLs do conteúdo original.
+- Tags: array de até 6 tags relevantes ao conteúdo.
 
 Se alguma informação não puder ser determinada, retorne campo vazio ("" ou []). Sempre retorne JSON válido e em português.`
         },
-        { role: 'user', content: prompt }
+        { role: 'user', content: `Conteúdo estruturado do artigo:\n\n${structuredContent}` }
       ],
       temperature: 0.15
     });
@@ -335,8 +520,17 @@ Se alguma informação não puder ser determinada, retorne campo vazio ("" ou []
 
 // DEBUG: Log para verificar se as chaves foram carregadas
 console.log('OpenAI API Key carregada:', OPENAI_API_KEY ? '✓ Sim' : '✗ Não');
+console.log('Copilot API Key carregada:', COPILOT_API_KEY ? '✓ Sim' : '✗ Não');
 console.log('Share API URL carregada:', SHARE_API_URL ? '✓ Sim' : '✗ Não');
 console.log('Share API Key carregada:', SHARE_API_KEY ? '✓ Sim' : '✗ Não');
+
+if (!OPENAI_API_KEY && !COPILOT_API_KEY) {
+  console.warn('⚠️ ATENÇÃO: Nenhuma chave de IA configurada! Configure OPENAI_API_KEY ou COPILOT_API_KEY em .env');
+} else if (COPILOT_API_KEY) {
+  console.log('✓ Usando Copilot como provider de IA');
+} else {
+  console.log('✓ Usando OpenAI como provider de IA');
+}
 
 // 🔹 Busca no Share Linx
 ipcMain.handle('search-share', async (event, termoBusca) => {
@@ -588,73 +782,132 @@ ipcMain.handle('extract-article-content', async (event, url) => {
       timeout: 15000,
       headers: { 
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Cookie': 'CONF_SPACE_KEY=KB'
       }
     });
 
     const html = response.data;
     const $ = cheerio.load(html);
 
-    // Estratégia de extração: tenta vários seletores comuns
-    let content = '';
-    let extractedFrom = 'desconhecido';
-    
-    // Tenta principais seletores de artigo (ordem de prioridade)
+    // Extrai o título da página
+    let title = $('h1').first().text() || $('title').text() || 'Sem título';
+    console.log(`📋 Título encontrado: "${title}"`);
+
+    // Encontra o container principal do conteúdo
+    let mainContent = null;
     const selectors = [
-      { selector: '.confluence-content-wrapper', name: 'Confluence (Share Linx)' },
-      { selector: '.wiki-content', name: 'Wiki Content (Confluence)' },
-      { selector: '[role="main"]', name: 'Main Role' },
-      { selector: 'article', name: 'Article Tag' },
-      { selector: '.content', name: 'Content Class' },
-      { selector: '.article-body', name: 'Article Body' },
-      { selector: '.post-content', name: 'Post Content' },
-      { selector: '#content', name: 'Content ID' },
-      { selector: '.page-content', name: 'Page Content' },
-      { selector: 'main', name: 'Main Tag' }
+      '#main-content',
+      '.confluence-content-wrapper',
+      '.wiki-content',
+      '[role="main"]',
+      '.page-content',
+      '#content'
     ];
 
-    for (const {selector, name} of selectors) {
+    for (const selector of selectors) {
       const el = $(selector).first();
       if (el.length > 0) {
-        content = el.text();
-        extractedFrom = name;
-        console.log(`  ✓ Encontrado em: ${name}`);
-        if (content.length > 150) {
-          console.log(`  ✓ Conteúdo extraído: ${content.length} caracteres`);
-          break;
-        }
+        mainContent = el;
+        console.log(`  ✓ Container encontrado: ${selector}`);
+        break;
       }
     }
 
-    // Se ainda não achou, tenta pegar todo o texto do body
-    if (content.length < 100) {
-      console.log('  ⚠️ Conteúdo insuficiente, tentando body inteiro...');
-      content = $('body').text();
-      extractedFrom = 'Body (fallback)';
+    if (!mainContent) {
+      mainContent = $('body');
+      console.log(`  ✓ Usando body como fallback`);
+    }
+
+    // Remove elementos desnecessários
+    mainContent.find('script, style, nav, header, footer, .breadcrumbs, .page-metadata, .recently-updated, .comments-section, .likes, .page-history').remove();
+
+    // Estratégia: Extrair conteúdo preservando a hierarquia de tópicos (headers e seções)
+    let content = '';
+    let structuredContent = [];
+
+    // Processa o conteúdo preservando headers e seções
+    mainContent.find('h1, h2, h3, h4, h5, h6, p, li, td, div[class*="section"], div[class*="body"]').each((idx, elem) => {
+      const $elem = $(elem);
+      const text = $elem.text().trim();
+      
+      if (text && text.length > 0) {
+        // Pula elementos muito pequenos ou genéricos
+        if (text.match(/^(Home|Search|Log In|Sign Up|Settings|Help|Feedback|Comments|Like|Share|Save)$/i)) {
+          return;
+        }
+
+        const tagName = elem.name.toLowerCase();
+        
+        // Adiciona indentação baseada no nível do header
+        let prefix = '';
+        if (tagName.match(/^h[1-6]$/)) {
+          const level = parseInt(tagName[1]);
+          prefix = '• '.repeat(level - 1);
+          content += `\n${prefix}${text}\n`;
+          structuredContent.push({ type: 'header', level, text });
+        } else if (tagName === 'li') {
+          prefix = '  • ';
+          content += `${prefix}${text}\n`;
+          structuredContent.push({ type: 'list', text });
+        } else if (tagName === 'p' || tagName === 'td') {
+          if (text.length > 20) {
+            content += `${text}\n`;
+            structuredContent.push({ type: 'paragraph', text });
+          }
+        }
+      }
+    });
+
+    // Fallback: se extração estruturada retornou pouco, tenta extração simples
+    if (content.length < 300) {
+      console.log('  ⚠️ Conteúdo estruturado insuficiente, tentando extração simples...');
+      content = mainContent.text();
     }
 
     // Limpa espaços em branco mas preserva parágrafos
     const lines = content
       .split('\n')
       .map(line => line.trim())
-      .filter(line => line.length > 0)
-      .slice(0, 100);  // Pega até 100 linhas
+      .filter(line => line.length > 5) // Filtros apenas linhas com mais de 5 caracteres
+      .slice(0, 200);  // Pega até 200 linhas
     
-    content = lines.join('\n').trim().substring(0, 4000);   // Limita a 4000 caracteres
+    content = lines.join('\n').trim().substring(0, 12000);   // Limita a 12000 caracteres
 
-    console.log(`  📊 Extraído de: ${extractedFrom}`);
     console.log(`  📊 Tamanho final: ${content.length} caracteres, ${lines.length} linhas`);
+    console.log(`  📊 Estrutura: ${structuredContent.length} elementos estruturados`);
 
-    if (content.length < 50) {
-      throw new Error('Não foi possível extrair conteúdo significativo da página');
+    if (content.length < 100) {
+      throw new Error(`Conteúdo insuficiente extraído (${content.length} chars). A página pode estar protegida ou vazia.`);
     }
 
-    console.log('✅ Conteúdo extraído:', content.substring(0, 100) + '...');
-    return { content, error: null };
+    console.log('✅ Conteúdo extraído com sucesso!');
+    console.log('📝 Primeiras 300 caracteres:', content.substring(0, 300) + '...');
+    
+    return { content, title, error: null };
 
   } catch (err) {
     const errorMsg = `❌ Erro ao extrair conteúdo: ${err.message || err}`;
     console.error(errorMsg);
     return { content: null, error: errorMsg };
+  }
+});
+
+// Garante que a janela principal seja criada quando o app estiver pronto
+app.whenReady().then(() => {
+  createWindow();
+
+  app.on('activate', () => {
+    // No macOS, recria a janela se o ícone do dock for clicado e não houver janelas abertas
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+  });
+});
+
+// Fecha o app quando todas as janelas forem fechadas (exceto no macOS)
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
   }
 });
