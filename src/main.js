@@ -9,6 +9,10 @@ const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fet
 const axios = require('axios');
 const cheerio = require('cheerio');
 
+// Importa módulos KCS
+const { validateKCS, fixKCSJson, formatKCSForDisplay } = require('./kcs-validator');
+const { detectarModulo, gerarTags, extrairUrls, medirQualidadeConteudo } = require('./kcs-helpers');
+
 // Carrega variáveis do .env (localizado em src/)
 dotenv.config({ path: path.join(__dirname, '.env') });
 
@@ -451,7 +455,7 @@ ipcMain.handle('ask-ai', async (event, prompt) => {
     if (!openai && !OPENAI_API_KEY && !COPILOT_API_KEY) {
       const msg = '❌ Nenhuma chave de IA configurada (OPENAI_API_KEY ou COPILOT_API_KEY).';
       console.error(msg);
-      return msg;
+      return { success: false, error: msg };
     }
     
     // Se não tem openai inicializado, inicializar agora
@@ -469,8 +473,15 @@ ipcMain.handle('ask-ai', async (event, prompt) => {
     
     // Aplica parser inteligente ao conteúdo
     const structuredContent = smartParseContent(prompt);
-
     
+    // Detecta módulo e gera informações adicionais
+    const moduloDetectado = detectarModulo(structuredContent);
+    const tagsAutomaticas = gerarTags(structuredContent);
+    const urlsEncontradas = extrairUrls(structuredContent);
+    const qualidade = medirQualidadeConteudo(structuredContent);
+
+    console.log(`📊 Análise: Módulo=${moduloDetectado}, Qualidade=${qualidade.score}%, Tags=${tagsAutomaticas.length}, URLs=${urlsEncontradas.length}`);
+
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
@@ -493,12 +504,12 @@ Estrutura do JSON (campos obrigatórios/formatos):
 
 Regras CRÍTICAS:
 - Título: "Linx Microvix - [Módulo] - Como [ação]" (sem pontuação final).
-- Module: identificar quando possível (Faturamento, Estoque, Fiscal, Empresa, Suprimentos, Segurança, Postos, Farma, Automotivo).
+- Module: identificar quando possível. Módulos sugeridos: ${moduloDetectado}.
 - Description: frase introdutória começando com "Para ..." que resuma o artigo.
 - Cause: explicação do problema ou contexto (se não houver, deixar vazio).
 - Solution: array com TODOS os passos/instruções encontrados. Preserve numeros e subpassos (ex: "1", "1.1", "2"). ISSO É O MAIS IMPORTANTE.
-- Links: extrair URLs do conteúdo original.
-- Tags: array de até 6 tags relevantes ao conteúdo.
+- Links: extrair URLs do conteúdo original. URLs encontradas: ${urlsEncontradas.join(', ') || 'nenhuma'}.
+- Tags: array de até 6 tags relevantes ao conteúdo. Sugestões: ${tagsAutomaticas.join(', ')}.
 
 Se alguma informação não puder ser determinada, retorne campo vazio ("" ou []). Sempre retorne JSON válido e em português.`
         },
@@ -506,15 +517,49 @@ Se alguma informação não puder ser determinada, retorne campo vazio ("" ou []
       ],
       temperature: 0.15
     });
+    
     const resposta = completion.choices[0]?.message?.content || 'Sem resposta.';
     console.log('📥 Resposta recebida da IA (primeiros 150 chars):', resposta.substring(0, 150) + '...');
-    console.log('📋 Resposta completa:', resposta);
     
-    return resposta;
+    // Parse do JSON retornado
+    let kcsData = {};
+    try {
+      kcsData = JSON.parse(resposta);
+    } catch (parseErr) {
+      console.error('❌ Erro ao fazer parse do JSON:', parseErr.message);
+      return {
+        success: false,
+        error: 'IA retornou JSON inválido',
+        raw: resposta
+      };
+    }
+    
+    // Valida os dados KCS
+    const validation = validateKCS(kcsData);
+    
+    console.log('✅ Validação KCS:', validation.valid ? 'APROVADO' : 'COM ERROS');
+    if (validation.errors.length > 0) {
+      console.log('❌ Erros:', validation.errors);
+    }
+    if (validation.warnings.length > 0) {
+      console.log('⚠️ Avisos:', validation.warnings);
+    }
+    
+    console.log('📋 Dados KCS finais:', JSON.stringify(validation.data, null, 2));
+    
+    return {
+      success: validation.valid,
+      data: validation.data,
+      errors: validation.errors,
+      warnings: validation.warnings,
+      qualidade: qualidade,
+      raw: resposta
+    };
   } catch (err) {
     const msg = `❌ Erro ao consultar IA: ${err.message || err}`;
     console.error(msg);
-    return msg;
+    console.error('Stack:', err.stack);
+    return { success: false, error: msg };
   }
 });
 

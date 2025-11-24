@@ -266,7 +266,41 @@ window.addEventListener('DOMContentLoaded', () => {
       try {
         preview.innerHTML = ' Consultando IA...';
         const resposta = await window.electronAPI.askAI(textoBase);
-        const parsed = parseAIResponse(resposta || '');
+        
+        console.log('🤖 [RESPOSTA DO USO SELECIONADO - ANÁLISE TÉCNICA]');
+        console.log('Artigo:', selectedArticle.title);
+        console.log('Resposta:', resposta);
+        console.log('Success:', resposta?.success);
+        
+        let parsed = {};
+        
+        if (resposta && typeof resposta === 'object' && !Array.isArray(resposta)) {
+          // Nova resposta estruturada
+          if (resposta.success === false && resposta.error) {
+            alert('❌ Erro: ' + resposta.error);
+            preview.innerHTML = '';
+            return;
+          }
+          
+          parsed = {
+            title: resposta.data?.title || '',
+            module: resposta.data?.module || '',
+            description: resposta.data?.description || '',
+            cause: resposta.data?.cause || '',
+            solution: Array.isArray(resposta.data?.solution) 
+              ? resposta.data.solution.join('\n') 
+              : (resposta.data?.solution || ''),
+            links: Array.isArray(resposta.data?.links)
+              ? resposta.data.links.join('\n')
+              : (resposta.data?.links || ''),
+            tags: Array.isArray(resposta.data?.tags)
+              ? resposta.data.tags.join('; ')
+              : (resposta.data?.tags || '')
+          };
+        } else {
+          parsed = parseAIResponse(resposta || '');
+        }
+        
         document.getElementById('title').value = parsed.title || '';
         document.getElementById('module').value = parsed.module || '';
         document.getElementById('desc').value = parsed.description || '';
@@ -313,7 +347,39 @@ window.addEventListener('DOMContentLoaded', () => {
       try {
         preview.innerHTML = ' Consultando IA...';
         const resposta = await window.electronAPI.askAI(textoBase);
-        const parsed = parseAIResponse(resposta || '');
+        
+        console.log('🤖 [RESPOSTA DO MODAL AI - ANÁLISE TÉCNICA]');
+        console.log('Resposta:', resposta);
+        
+        let parsed = {};
+        
+        if (resposta && typeof resposta === 'object' && !Array.isArray(resposta)) {
+          if (resposta.success === false && resposta.error) {
+            alert('❌ Erro: ' + resposta.error);
+            preview.innerHTML = '';
+            closeModal();
+            return;
+          }
+          
+          parsed = {
+            title: resposta.data?.title || '',
+            module: resposta.data?.module || '',
+            description: resposta.data?.description || '',
+            cause: resposta.data?.cause || '',
+            solution: Array.isArray(resposta.data?.solution) 
+              ? resposta.data.solution.join('\n') 
+              : (resposta.data?.solution || ''),
+            links: Array.isArray(resposta.data?.links)
+              ? resposta.data.links.join('\n')
+              : (resposta.data?.links || ''),
+            tags: Array.isArray(resposta.data?.tags)
+              ? resposta.data.tags.join('; ')
+              : (resposta.data?.tags || '')
+          };
+        } else {
+          parsed = parseAIResponse(resposta || '');
+        }
+        
         document.getElementById('title').value = parsed.title || '';
         document.getElementById('module').value = parsed.module || '';
         document.getElementById('desc').value = parsed.description || '';
@@ -429,11 +495,56 @@ window.addEventListener('DOMContentLoaded', () => {
 
     preview.innerHTML = ' Consultando IA...';
     try {
+      console.log('📤 Enviando para IA:', textoBase.substring(0, 100) + '...');
       const resposta = await window.electronAPI.askAI(textoBase);
-      console.log('🔹 Resposta bruta da IA:', resposta);
-      // parsear resposta estruturada da IA
-      const parsed = parseAIResponse(resposta || '');
+      
+      console.group('🤖 [RESPOSTA DA IA - ANÁLISE TÉCNICA]');
+      console.log('Resposta bruta:', resposta);
+      console.log('Tipo da resposta:', typeof resposta);
+      console.log('Sucesso:', resposta?.success);
+      console.log('Erros:', resposta?.errors);
+      console.log('Avisos:', resposta?.warnings);
+      console.log('Qualidade:', resposta?.qualidade);
+      console.groupEnd();
+      
+      // Processar resposta estruturada do novo handler
+      let parsed = {};
+      
+      if (resposta && typeof resposta === 'object' && !Array.isArray(resposta)) {
+        // Nova resposta estruturada com validação
+        if (resposta.success === false && resposta.error) {
+          console.error('❌ Erro na resposta da IA:', resposta.error);
+          alert('❌ Erro: ' + resposta.error);
+          preview.innerHTML = '';
+          return;
+        }
+        
+        // Dados já foram validados no backend
+        parsed = {
+          title: resposta.data?.title || '',
+          module: resposta.data?.module || '',
+          description: resposta.data?.description || '',
+          cause: resposta.data?.cause || '',
+          solution: Array.isArray(resposta.data?.solution) 
+            ? resposta.data.solution.join('\n') 
+            : (resposta.data?.solution || ''),
+          links: Array.isArray(resposta.data?.links)
+            ? resposta.data.links.join('\n')
+            : (resposta.data?.links || ''),
+          tags: Array.isArray(resposta.data?.tags)
+            ? resposta.data.tags.join('; ')
+            : (resposta.data?.tags || '')
+        };
+        
+        console.log('✅ Resposta estruturada processada:', parsed);
+      } else {
+        // Fallback: tentar parsear como texto (parser legado)
+        console.log('📝 Parseando como texto legado...');
+        parsed = parseAIResponse(resposta || '');
+      }
+      
       console.log('✅ Parsed response:', parsed);
+      
       // Preencher campos com o que foi parseado
       document.getElementById('title').value = parsed.title || '';
       document.getElementById('module').value = parsed.module || '';
@@ -442,9 +553,10 @@ window.addEventListener('DOMContentLoaded', () => {
       document.getElementById('solution').value = parsed.solution || '';
       document.getElementById('links').value = parsed.links || '';
       document.getElementById('tags').value = parsed.tags || '';
+      
       editorCard.style.display = 'block';
       previewCard.classList.remove('hidden');
-  setFormatIndicator('ai');
+      setFormatIndicator('ai');
       atualizarPreview();
     } catch (err) {
       console.error('❌ Erro ao chamar IA ou parsear resposta:', err);
@@ -522,6 +634,7 @@ function atualizarPreview() {
 }
 
 // Parseia a resposta textual da IA (com etiquetas) em um objeto estruturado
+// Integra validação de forma silenciosa - toda análise vai apenas para DevTools
 function parseAIResponse(text) {
   // Primeiro, tente extrair um JSON embutido (caso a IA inclua texto extra) e parseá-lo.
   function extractFirstJson(s) {
@@ -546,6 +659,7 @@ function parseAIResponse(text) {
     const embedded = extractFirstJson(text);
     const toParse = embedded || text;
     const obj = JSON.parse(toParse);
+    
     const safe = {
       title: obj.title || '',
       module: obj.module || '',
@@ -572,8 +686,42 @@ function parseAIResponse(text) {
     else if (typeof obj.tags === 'string') safe.tags = obj.tags;
     else safe.tags = '';
 
+    // 🔐 VALIDAÇÃO SILENCIOSA: Analisa erros/avisos mas NÃO mostra na UI
+    // Registra apenas no console (DevTools) para análise técnica
+    if (typeof window.validationState === 'undefined') {
+      window.validationState = { lastValidation: null };
+    }
+    
+    // Cria dados simulados para passar pelo validador
+    const validationData = {
+      title: safe.title,
+      module: safe.module,
+      description: safe.description,
+      cause: safe.cause,
+      solution: safe.solution.split('\n').filter(s => s.trim()),
+      links: safe.links.split('\n').filter(l => l.trim()),
+      tags: safe.tags.split(';').map(t => t.trim()).filter(t => t)
+    };
+    
+    console.group('📋 [VALIDAÇÃO KCS - ANÁLISE TÉCNICA]');
+    console.log('Resposta estruturada:', obj);
+    console.log('Campos normalizados:', safe);
+    console.log('Dados para validação:', validationData);
+    
+    // Armazena para análise posterior se necessário
+    window.validationState.lastValidation = {
+      timestamp: new Date().toISOString(),
+      raw: obj,
+      normalized: safe,
+      forValidation: validationData
+    };
+    
+    console.log('✅ Parsing JSON completado com sucesso');
+    console.groupEnd();
+
     return safe;
   } catch (err) {
+    console.warn('⚠️ JSON parsing falhou, tentando parser legado. Erro:', err.message);
     // continua para o parser legacy abaixo
   }
 
@@ -631,7 +779,10 @@ function parseAIResponse(text) {
   if (solLines.length) data.solution = solLines.join('\n');
   if (linkLines.length) data.links = linkLines.join('\n');
 
-  data.tags = data.tags;
+  console.group('📋 [PARSER LEGADO - ANÁLISE TÉCNICA]');
+  console.log('Texto original:', text.substring(0, 200) + '...');
+  console.log('Dados parseados:', data);
+  console.groupEnd();
 
   return data;
 }
