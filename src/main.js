@@ -143,8 +143,57 @@ function createArticleWindow(url, title = 'Visualizador de Artigo') {
   childWindow.webContents.on('did-finish-load', () => {
     console.log('✅ Child window: Carregamento HTML concluído!');
     
-    // Verifica o tamanho do conteúdo
+    // Adiciona barra de URL no topo da página
     childWindow.webContents.executeJavaScript(`
+      if (!document.getElementById('__kcs-url-bar')) {
+        const urlBar = document.createElement('div');
+        urlBar.id = '__kcs-url-bar';
+        urlBar.style.cssText = \`
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 40px;
+          background: #f0f0f0;
+          border-bottom: 1px solid #ccc;
+          display: flex;
+          align-items: center;
+          padding: 0 10px;
+          z-index: 999998;
+          font-family: Arial, sans-serif;
+          font-size: 12px;
+          color: #333;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        \`;
+        
+        urlBar.innerHTML = \`
+          <strong style="margin-right: 10px;">URL:</strong>
+          <input id="__kcs-url-input" type="text" readonly 
+            value="\${window.location.href}"
+            style="flex: 1; padding: 5px 8px; border: 1px solid #999; 
+            border-radius: 3px; font-size: 11px; font-family: monospace;
+            background: white; color: #333;">
+          <button id="__kcs-copy-url" style="margin-left: 10px; padding: 5px 10px; 
+            background: #007bff; color: white; border: none; border-radius: 3px; 
+            cursor: pointer; font-size: 12px;">Copiar</button>
+        \`;
+        
+        document.body.insertBefore(urlBar, document.body.firstChild);
+        
+        // Ajusta o margin do body para não sobrepor a barra
+        if (document.body.style.marginTop === '') {
+          document.body.style.marginTop = '40px';
+        }
+        
+        // Funcionalidade de copiar URL
+        document.getElementById('__kcs-copy-url').addEventListener('click', () => {
+          const input = document.getElementById('__kcs-url-input');
+          input.select();
+          document.execCommand('copy');
+          alert('URL copiada!');
+        });
+      }
+      
       const htmlSize = document.documentElement.innerHTML.length;
       const hasContent = document.body.children.length > 0;
       console.log('📊 HTML size:', htmlSize, 'bytes');
@@ -204,10 +253,71 @@ function createArticleWindow(url, title = 'Visualizador de Artigo') {
 
   // Registra atalhos de teclado globais
   childWindow.webContents.on('before-input-event', (event, input) => {
-    // Ctrl+F: Localizar
+    // Ctrl+F: Localizar (usar busca nativa do navegador)
     if (input.control && input.key.toLowerCase() === 'f') {
       event.preventDefault();
-      childWindow.webContents.findInPage('', { findNext: false });
+      childWindow.webContents.executeJavaScript(`
+        if (window.__kcsFinderVisible) {
+          document.getElementById('__kcs-finder-input').focus();
+          document.getElementById('__kcs-finder-input').select();
+        } else {
+          // Injeta um box de busca simples no topo da página
+          if (!document.getElementById('__kcs-finder')) {
+            const finder = document.createElement('div');
+            finder.id = '__kcs-finder';
+            finder.innerHTML = \`
+              <input id="__kcs-finder-input" type="text" placeholder="Buscar na página (Esc para fechar)..." 
+                style="width: 100%; padding: 8px; font-size: 14px; border: 1px solid #ccc; 
+                background: #fff; color: #333; position: fixed; top: 0; left: 0; 
+                z-index: 999999; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+            \`;
+            document.body.insertBefore(finder, document.body.firstChild);
+            window.__kcsFinderVisible = true;
+            
+            const input = document.getElementById('__kcs-finder-input');
+            input.focus();
+            
+            // Buscar enquanto digita
+            input.addEventListener('input', (e) => {
+              const searchTerm = e.target.value;
+              if (searchTerm) {
+                // Remove highlights anteriores
+                document.querySelectorAll('.__kcs-highlight').forEach(el => {
+                  el.classList.remove('__kcs-highlight');
+                });
+                
+                // Highlight novo
+                const walker = document.createTreeWalker(
+                  document.body,
+                  NodeFilter.SHOW_TEXT,
+                  null
+                );
+                let node;
+                while (node = walker.nextNode()) {
+                  if (node.textContent.toLowerCase().includes(searchTerm.toLowerCase())) {
+                    const span = document.createElement('span');
+                    span.className = '__kcs-highlight';
+                    span.style.backgroundColor = 'yellow';
+                    span.textContent = node.textContent;
+                    node.parentNode.replaceChild(span, node);
+                  }
+                }
+              }
+            });
+            
+            // Fechar com Esc
+            input.addEventListener('keydown', (e) => {
+              if (e.key === 'Escape') {
+                document.getElementById('__kcs-finder').remove();
+                window.__kcsFinderVisible = false;
+                document.querySelectorAll('.__kcs-highlight').forEach(el => {
+                  el.classList.remove('__kcs-highlight');
+                });
+              }
+            });
+          }
+        }
+      `);
       return;
     }
     
