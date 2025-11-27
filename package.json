@@ -1,6 +1,6 @@
 {
   "name": "kcs-formatter",
-  "version": "3.0.3",
+  "version": "3.0.4",
   "description": "Ferramenta KCS Formatter — Mestre dos Brabos | Linx Microvix",
   "main": "src/main.js",
   "author": "Equipe Mestre dos Brabos",

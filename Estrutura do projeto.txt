@@ -1,0 +1,33 @@
+kcs_formatter_projeto/
+│
+├── package.json
+├── .env.example   ← você vai copiar para .env e colar suas chaves
+│
+├── src/
+│   ├── main.js        ← controle Electron principal
+│   ├── preload.js     ← ponte segura entre front e Node
+│   ├── renderer.js    ← lógica do app (busca, IA, formatação)
+│
+├── public/
+│   ├── index.html     ← interface completa
+│   ├── styles.css     ← estilos
+│   ├── libs/
+│   │   └── quill/     ← quill.min.js e quill.snow.css (você copia depois)
+│
+└── README.md
+
+
+
+features:
+
+Electron 31+
+
+Node.js 22
+
+OpenAI SDK oficial
+
+Dotenv
+
+Fetch API nativa
+
+QuillJS
