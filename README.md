@@ -1,6 +1,7 @@
-# KCS Formatter 3.0.4
+# KCS Formatter 3.0.5
 
-> Aplicação Electron para formatação automática de artigos segundo metodologia KCS (Linx Microvix)
+> Aplicação Electron para formatação automática de artigos segundo metodologia KCS (Linx Microvix)  
+> **Branch Principal**: `main` | **Última Atualização**: Novembro 2025
 
 ## 🚀 Quick Start
 
@@ -66,11 +67,12 @@ Toda a documentação está em `/docs`:
 | Arquivo | Descrição |
 |---------|-----------|
 | [LEIA_ME_PRIMEIRO.md](docs/LEIA_ME_PRIMEIRO.md) | **COMECE AQUI** |
+| [GUIA_GIT_COMPLETO.md](docs/GUIA_GIT_COMPLETO.md) | **⭐ Guia Git (v3.0.5)** |
 | [INTEGRATION_SUMMARY.md](docs/INTEGRATION_SUMMARY.md) | Integração técnica KCS |
 | [RESULTADO_INTEGRACAO.md](docs/RESULTADO_INTEGRACAO.md) | Guia visual dos resultados |
 | [BUILD_GUIDE.md](docs/BUILD_GUIDE.md) | Como compilar |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Solução de problemas |
-| [GUIA_GIT.md](docs/GUIA_GIT.md) | Workflow Git |
+| [GIT_COMPARTILHAMENTO.md](docs/GIT_COMPARTILHAMENTO.md) | Compartilhamento em equipe |
 
 ## ✨ Recursos
 
