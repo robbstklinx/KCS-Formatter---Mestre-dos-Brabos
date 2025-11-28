@@ -901,7 +901,7 @@ ipcMain.handle('search-google', async (event, termoBusca) => {
   }
 });
 
-// 🔹 Extrair conteúdo de um artigo a partir de sua URL
+// 🔹 Extrair conteúdo de um artigo a partir de sua URL (VERSÃO MELHORADA)
 ipcMain.handle('extract-article-content', async (event, url) => {
   try {
     if (!url) throw new Error('URL não fornecida');
@@ -924,7 +924,7 @@ ipcMain.handle('extract-article-content', async (event, url) => {
     let title = $('h1').first().text() || $('title').text() || 'Sem título';
     console.log(`📋 Título encontrado: "${title}"`);
 
-    // Encontra o container principal do conteúdo
+    // Encontra o container principal do conteúdo (SELETORES MELHORADOS)
     let mainContent = null;
     const selectors = [
       '#main-content',
@@ -932,7 +932,12 @@ ipcMain.handle('extract-article-content', async (event, url) => {
       '.wiki-content',
       '[role="main"]',
       '.page-content',
-      '#content'
+      '#content',
+      '.aui-page-panel-body', // Confluence específico
+      '.editor-content', // Confluence Rich Text
+      '[data-testid="content"]', // Cloud Confluence
+      '.pageSection', // Outra variante Confluence
+      '.mw-parser-output' // MediaWiki
     ];
 
     for (const selector of selectors) {
@@ -949,63 +954,155 @@ ipcMain.handle('extract-article-content', async (event, url) => {
       console.log(`  ✓ Usando body como fallback`);
     }
 
-    // Remove elementos desnecessários
-    mainContent.find('script, style, nav, header, footer, .breadcrumbs, .page-metadata, .recently-updated, .comments-section, .likes, .page-history').remove();
+    // Remove elementos desnecessários (ampliado)
+    mainContent.find('script, style, nav, header, footer, .breadcrumbs, .page-metadata, .recently-updated, .comments-section, .likes, .page-history, .related-content, .social-share, button, [role="toolbar"]').remove();
 
-    // Estratégia: Extrair conteúdo preservando a hierarquia de tópicos (headers e seções)
     let content = '';
-    let structuredContent = [];
 
-    // Processa o conteúdo preservando headers e seções
-    mainContent.find('h1, h2, h3, h4, h5, h6, p, li, td, div[class*="section"], div[class*="body"]').each((idx, elem) => {
+    // ===== ESTRATÉGIA DE EXTRAÇÃO MELHORADA =====
+    
+    // 1. Processa HEADERS com hierarquia completa
+    mainContent.find('h1, h2, h3, h4, h5, h6').each((idx, elem) => {
       const $elem = $(elem);
       const text = $elem.text().trim();
-      
-      if (text && text.length > 0) {
-        // Pula elementos muito pequenos ou genéricos
-        if (text.match(/^(Home|Search|Log In|Sign Up|Settings|Help|Feedback|Comments|Like|Share|Save)$/i)) {
-          return;
-        }
+      if (text && text.length > 0 && !text.match(/^(Home|Search|Log In|Sign Up|Settings|Help|Feedback|Comments|Like|Share|Save)$/i)) {
+        const level = parseInt(elem.name[1]);
+        const prefix = '#'.repeat(level); // Markdown format
+        content += `\n${prefix} ${text}\n`;
+      }
+    });
 
-        const tagName = elem.name.toLowerCase();
-        
-        // Adiciona indentação baseada no nível do header
-        let prefix = '';
-        if (tagName.match(/^h[1-6]$/)) {
-          const level = parseInt(tagName[1]);
-          prefix = '• '.repeat(level - 1);
-          content += `\n${prefix}${text}\n`;
-          structuredContent.push({ type: 'header', level, text });
-        } else if (tagName === 'li') {
-          prefix = '  • ';
-          content += `${prefix}${text}\n`;
-          structuredContent.push({ type: 'list', text });
-        } else if (tagName === 'p' || tagName === 'td') {
-          if (text.length > 20) {
-            content += `${text}\n`;
-            structuredContent.push({ type: 'paragraph', text });
-          }
+    // 2. Processa PARÁGRAFOS (não vazios)
+    mainContent.find('p').each((idx, elem) => {
+      const text = $(elem).text().trim();
+      if (text && text.length > 15) {
+        content += `${text}\n`;
+      }
+    });
+
+    // 3. Processa LISTAS com hierarquia (ordered e unordered)
+    mainContent.find('ul, ol').each((idx, list) => {
+      const isOrdered = $(list).prop('tagName').toLowerCase() === 'ol';
+      let itemNum = 1;
+      
+      $(list).find('li').each((liIdx, li) => {
+        const text = $(li).text().trim();
+        if (text && text.length > 5) {
+          const prefix = isOrdered ? `${itemNum}.` : '•';
+          content += `${prefix} ${text}\n`;
+          if (isOrdered) itemNum++;
         }
+      });
+      content += '\n';
+    });
+
+    // 4. Processa CÓDIGO (pre, code) - IMPORTANTE para passo a passos
+    mainContent.find('pre, code').each((idx, elem) => {
+      const $elem = $(elem);
+      const text = $elem.text().trim();
+      if (text && text.length > 5 && !text.includes('<')) {
+        // Se estiver dentro de pre, preserve formatting
+        if (elem.name.toLowerCase() === 'pre') {
+          content += `\n\`\`\`\n${text}\n\`\`\`\n`;
+        } else {
+          content += ` \`${text}\` `;
+        }
+      }
+    });
+
+    // 5. Processa TABELAS (converte para texto estruturado)
+    mainContent.find('table').each((idx, table) => {
+      const $table = $(table);
+      const rows = [];
+      
+      $table.find('tr').each((rowIdx, tr) => {
+        const cells = [];
+        $(tr).find('td, th').each((cellIdx, cell) => {
+          cells.push($(cell).text().trim());
+        });
+        if (cells.length > 0) {
+          rows.push(cells.join(' | '));
+        }
+      });
+      
+      if (rows.length > 0) {
+        content += `\n📊 TABELA:\n${rows.join('\n')}\n\n`;
+      }
+    });
+
+    // 6. Processa NOTAS, AVISOS, INFO (divs com classes específicas)
+    mainContent.find('[class*="note"], [class*="warning"], [class*="info"], [class*="success"], [class*="error"], [class*="important"], [class*="tip"]').each((idx, elem) => {
+      const text = $(elem).text().trim();
+      if (text && text.length > 10) {
+        const className = $(elem).attr('class') || 'info';
+        const prefix = className.includes('warning') ? '⚠️ AVISO' : 
+                       className.includes('error') ? '❌ ERRO' :
+                       className.includes('success') ? '✅ SUCESSO' :
+                       className.includes('tip') ? '💡 DICA' :
+                       className.includes('important') ? '🔴 IMPORTANTE' : '📝 NOTA';
+        content += `\n${prefix}: ${text}\n`;
+      }
+    });
+
+    // 7. Processa LINKS (extrai e preserva URLs importantes)
+    const links = [];
+    mainContent.find('a[href]').each((idx, elem) => {
+      const href = $(elem).attr('href');
+      const linkText = $(elem).text().trim();
+      if (href && !href.startsWith('#') && href.length > 5 && linkText.length > 3) {
+        links.push(`${linkText}: ${href}`);
+      }
+    });
+    if (links.length > 0) {
+      content += `\n🔗 LINKS ENCONTRADOS:\n${links.slice(0, 10).join('\n')}\n`;
+    }
+
+    // 8. Processa IMAGENS (alt text, que frequentemente contém descrições importantes)
+    const images = [];
+    mainContent.find('img[alt], img[title]').each((idx, elem) => {
+      const alt = $(elem).attr('alt') || $(elem).attr('title');
+      if (alt && alt.length > 5) {
+        images.push(alt);
+      }
+    });
+    if (images.length > 0) {
+      content += `\n🖼️ IMAGENS (descrições):\n${images.slice(0, 5).join('\n')}\n`;
+    }
+
+    // 9. Processa DETAILS/SUMMARY (acordeões Confluence)
+    mainContent.find('details').each((idx, detail) => {
+      const summary = $(detail).find('summary').first().text().trim();
+      const innerContent = $(detail).contents().not('summary').text().trim();
+      if (summary) {
+        content += `\n▶️ ${summary}\n${innerContent}\n`;
+      }
+    });
+
+    // 10. Processa BLOCKQUOTES (citações importantes)
+    mainContent.find('blockquote').each((idx, elem) => {
+      const text = $(elem).text().trim();
+      if (text && text.length > 10) {
+        content += `\n❝ ${text} ❞\n`;
       }
     });
 
     // Fallback: se extração estruturada retornou pouco, tenta extração simples
     if (content.length < 300) {
-      console.log('  ⚠️ Conteúdo estruturado insuficiente, tentando extração simples...');
+      console.log('  ⚠️ Conteúdo estruturado insuficiente, tentando extração de texto bruto...');
       content = mainContent.text();
     }
 
-    // Limpa espaços em branco mas preserva parágrafos
+    // Limpa espaços em branco mas preserva estrutura
     const lines = content
       .split('\n')
       .map(line => line.trim())
-      .filter(line => line.length > 5) // Filtros apenas linhas com mais de 5 caracteres
-      .slice(0, 200);  // Pega até 200 linhas
+      .filter(line => line.length > 3) // Mantém linhas curtas também (títulos)
+      .slice(0, 300);  // Pega até 300 linhas (era 200)
     
-    content = lines.join('\n').trim().substring(0, 12000);   // Limita a 12000 caracteres
+    content = lines.join('\n').trim().substring(0, 30000);   // Limita a 30KB (era 12KB)
 
     console.log(`  📊 Tamanho final: ${content.length} caracteres, ${lines.length} linhas`);
-    console.log(`  📊 Estrutura: ${structuredContent.length} elementos estruturados`);
+    console.log(`  ✅ Extração completa com: headers, parágrafos, listas, código, tabelas, notas, links, imagens, accordions`);
 
     if (content.length < 100) {
       throw new Error(`Conteúdo insuficiente extraído (${content.length} chars). A página pode estar protegida ou vazia.`);
