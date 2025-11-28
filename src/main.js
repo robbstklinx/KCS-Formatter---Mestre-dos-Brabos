@@ -20,14 +20,32 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim();
 const COPILOT_API_KEY = (process.env.COPILOT_API_KEY || '').trim();
 const COPILOT_ENDPOINT = (process.env.COPILOT_ENDPOINT || 'https://api.openai.com/v1').trim();
+const OLLAMA_ENDPOINT = (process.env.OLLAMA_ENDPOINT || 'http://localhost:11434/v1').trim();
+const OLLAMA_MODEL = (process.env.OLLAMA_MODEL || 'llama3.1').trim();
 const SHARE_API_KEY = (process.env.SHARE_API_KEY || '').trim();
 const SHARE_API_URL = (process.env.SHARE_API_URL || '').trim();
 
 let openai = null;
+let aiProvider = 'none';
+
+// Fallback em cascata: OpenAI → Copilot → Ollama
 if (OPENAI_API_KEY) {
   openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+  aiProvider = 'openai';
 } else if (COPILOT_API_KEY) {
   openai = new OpenAI({ apiKey: COPILOT_API_KEY, baseURL: COPILOT_ENDPOINT });
+  aiProvider = 'copilot';
+} else {
+  // Fallback: Usar Ollama local (sem chave necessária)
+  try {
+    openai = new OpenAI({ 
+      apiKey: 'not-needed-for-ollama',
+      baseURL: OLLAMA_ENDPOINT 
+    });
+    aiProvider = 'ollama';
+  } catch (err) {
+    console.warn('⚠️ Erro ao inicializar Ollama:', err.message);
+  }
 }
 
 // =============================
@@ -539,8 +557,18 @@ ipcMain.handle('ask-ai', async (event, prompt) => {
 
     console.log(`📊 Análise: Módulo=${moduloDetectado}, Qualidade=${qualidade.score}%, Tags=${tagsAutomaticas.length}, URLs=${urlsEncontradas.length}`);
 
+    // Selecionar modelo baseado no provider
+    const modelMap = {
+      'openai': 'gpt-4o-mini',
+      'copilot': 'gpt-4o-mini',
+      'ollama': OLLAMA_MODEL
+    };
+    const selectedModel = modelMap[aiProvider] || 'gpt-4o-mini';
+    
+    console.log(`📋 Usando modelo: ${selectedModel} (provider: ${aiProvider})`);
+
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: selectedModel,
       messages: [
         {
           role: 'system',
@@ -623,15 +651,15 @@ Se alguma informação não puder ser determinada, retorne campo vazio ("" ou []
 // DEBUG: Log para verificar se as chaves foram carregadas
 console.log('OpenAI API Key carregada:', OPENAI_API_KEY ? '✓ Sim' : '✗ Não');
 console.log('Copilot API Key carregada:', COPILOT_API_KEY ? '✓ Sim' : '✗ Não');
+console.log('Ollama Endpoint carregado:', OLLAMA_ENDPOINT ? '✓ Sim' : '✗ Não');
+console.log('Ollama Model:', OLLAMA_MODEL);
 console.log('Share API URL carregada:', SHARE_API_URL ? '✓ Sim' : '✗ Não');
 console.log('Share API Key carregada:', SHARE_API_KEY ? '✓ Sim' : '✗ Não');
 
-if (!OPENAI_API_KEY && !COPILOT_API_KEY) {
-  console.warn('⚠️ ATENÇÃO: Nenhuma chave de IA configurada! Configure OPENAI_API_KEY ou COPILOT_API_KEY em .env');
-} else if (COPILOT_API_KEY) {
-  console.log('✓ Usando Copilot como provider de IA');
+if (!OPENAI_API_KEY && !COPILOT_API_KEY && aiProvider === 'none') {
+  console.warn('⚠️ ATENÇÃO: Nenhuma chave de IA configurada! Configure OPENAI_API_KEY, COPILOT_API_KEY ou OLLAMA_ENDPOINT em .env');
 } else {
-  console.log('✓ Usando OpenAI como provider de IA');
+  console.log(`✓ Usando ${aiProvider.toUpperCase()} como provider de IA`);
 }
 
 // 🔹 Busca no Share Linx
